@@ -10,7 +10,7 @@
 
 #define LOG_TAG "SocketClient"
 
-#include "include/SocketClient.h"
+#include "../include/SocketClient.h"
 
 SocketClient::SocketClient(int socket, bool owned) {
     init(socket, owned, false);

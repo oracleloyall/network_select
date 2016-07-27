@@ -7,13 +7,14 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/un.h>
+#include<netinet/ip.h>
 #include <list>
 #include<stdio.h>
 #include<fcntl.h>
 #define LOG_TAG "SocketListener"
-
-#include "include/SocketListener.h"
-#include "include/SocketClient.h"
+#include<pthread.h>
+#include "../include/SocketListener.h"
+#include "../include/SocketClient.h"
 
 #define CtrlPipe_Shutdown 0
 #define CtrlPipe_Wakeup   1
@@ -61,25 +62,49 @@ int SocketListener::startListener() {
 
 int SocketListener::startListener(int backlog) {
 
-    if (!mSocketName && mSock == -1) {
-        SLOGE("Failed to start unbound listener");
-        errno = EINVAL;
-        return -1;
-    } else if (mSocketName) {
+
+    if ( mSock == -1) {
+       // printf("Failed to start unbound listener");
+       // errno = EINVAL;
+        mSock=0;
+       // return -1;
+    }
+    	//android机制
 //        if ((mSock = android_get_control_socket(mSocketName)) < 0) {
 //            SLOGE("Obtaining file descriptor socket '%s' failed: %s",
 //                 mSocketName, strerror(errno));
 //            return -1;
 //        }
-//        SLOGV("got mSock = %d for %s", mSock, mSocketName);
-        fcntl(mSock, F_SETFD, FD_CLOEXEC);
-    }
 
-    if (mListen && listen(mSock, backlog) < 0) {
-        SLOGE("Unable to listen on socket (%s)", strerror(errno));
+    	struct sockaddr_in srv_addr;
+    	memset(&srv_addr, 0, sizeof(struct sockaddr_in));
+    	mSock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    	if (mSock< 0) {
+    			printf("Cannot create socket\n");
+    			return 1;
+    	}
+    	srv_addr.sin_family = AF_INET;
+    	srv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    	srv_addr.sin_port = htons(8000);
+        printf("get mSock = %d for %s\n", mSock, mSocketName);
+        fcntl(mSock, F_SETFD, FD_CLOEXEC);
+        if (bind(mSock, (struct sockaddr*) &srv_addr, sizeof(srv_addr)) < 0) {
+        		printf("Cannot bind socket\n");
+        		close(mSock);
+        		return 1;
+        	}
+
+        int opt = 1;
+        setsockopt(mSock,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof(opt));
+       int listenfd=listen(mSock, 1);
+        printf("listen fd is %d \n",listenfd);
+    if (mListen && listenfd< 0) {
+    	printf("Unable to listen on socket\n");
         return -1;
     } else if (!mListen)
+    {
         mClients->push_back(new SocketClient(mSock, false, mUseCmdNum));
+    }
 
 //    if (pipe(mCtrlPipe)) {
 //        SLOGE("pipe failed (%s)", strerror(errno));
@@ -128,6 +153,7 @@ int SocketListener::stopListener() {
 }
 
 void *SocketListener::threadStart(void *obj) {
+
     SocketListener *me = reinterpret_cast<SocketListener *>(obj);
 
     me->runListener();
@@ -136,6 +162,7 @@ void *SocketListener::threadStart(void *obj) {
 }
 
 void SocketListener::runListener() {
+
 
     SocketClientCollection pendingList;
 
@@ -155,7 +182,7 @@ void SocketListener::runListener() {
 //        FD_SET(mCtrlPipe[0], &read_fds);
 //        if (mCtrlPipe[0] > max)
 //            max = mCtrlPipe[0];
-
+        printf("into runlistenter\n");
         pthread_mutex_lock(&mClientsLock);
         for (it = mClients->begin(); it != mClients->end(); ++it) {
             // NB: calling out to an other object with mClientsLock held (safe)
@@ -166,11 +193,15 @@ void SocketListener::runListener() {
             }
         }
         pthread_mutex_unlock(&mClientsLock);
-        SLOGV("mListen=%d, max=%d, mSocketName=%s", mListen, max, mSocketName);
+
+       // printf("mListen=%d, max=%d, mSocketName=%s", mListen, max, mSocketName);
         if ((rc = select(max + 1, &read_fds, NULL, NULL, NULL)) < 0) {
             if (errno == EINTR)
+            {
+                printf("error EINTR\n");
                 continue;
-         printf("select failed (%s) mListen=%d, max=%d", strerror(errno), mListen, max);
+            }
+         printf("select failed \n ");
             sleep(1);
             continue;
         } else if (!rc)
@@ -192,7 +223,7 @@ void SocketListener::runListener() {
             do {
                 alen = sizeof(addr);
                 c = accept(mSock, &addr, &alen);
-                SLOGV("%s got %d from accept", mSocketName, c);
+                printf("%s got %d from accept\n", mSocketName, c);
             } while (c < 0 && errno == EINTR);
             if (c < 0) {
                 printf("accept failed (%s)", strerror(errno));
@@ -201,6 +232,7 @@ void SocketListener::runListener() {
             }
             fcntl(c, F_SETFD, FD_CLOEXEC);
             pthread_mutex_lock(&mClientsLock);
+            printf("put socket into server \n");
             mClients->push_back(new SocketClient(c, true, mUseCmdNum));
             pthread_mutex_unlock(&mClientsLock);
         }
