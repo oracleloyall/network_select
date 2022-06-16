@@ -27,6 +27,7 @@ protected:
         inline void setPrev(_Node* ptr) { mpPrev = ptr; }
         inline void setNext(_Node* ptr) { mpNext = ptr; }
     private:
+	/**/
         friend class List;
         friend class _ListIterator;
         T           mVal;
