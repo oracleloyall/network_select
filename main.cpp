@@ -1,3 +1,6 @@
+/*
+    main.cpp for muti connects from client
+*/
 #include<stdio.h>
 #include<string>
 #include"../include/List.h"
